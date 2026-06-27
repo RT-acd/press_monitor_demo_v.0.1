@@ -1,0 +1,687 @@
+<!DOCTYPE html>
+<html lang="ja">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>プレス生産管理見える化デモ - iPad最適化版</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;700&family=Noto+Sans+JP:wght@400;700;900&family=JetBrains+Mono:wght@700&display=swap" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdnjs.cloudflare.com/ajax/libs/font-awesome/6.5.1/css/all.min.css">
+    <style>
+        /* iPad 1画面 (スクロールなし) に完全にフィットさせる設定 */
+        * { 
+            box-sizing: border-box; 
+            margin: 0; 
+            padding: 0; 
+            user-select: none; /* タップ時の青い選択枠を防止 */
+            -webkit-user-select: none;
+        }
+        
+        body {
+            background-color: #020617;
+            font-family: 'Noto Sans JP', sans-serif;
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            height: 100vh;
+            width: 100vw;
+            overflow: hidden;
+            padding: 10px;
+        }
+
+        /* iPad標準解像度アスペクト比を意識したメインコンテナ */
+        .app-container {
+            width: 100%;
+            max-width: 1180px;
+            height: 100%;
+            max-height: 820px;
+            background-color: #0f172a;
+            color: #f1f5f9;
+            display: grid;
+            grid-template-rows: 50px 180px 1fr 140px; /* ヘッダー、稼働率、メイン情報、操作ボタン */
+            padding: 20px;
+            gap: 15px;
+            border-radius: 24px;
+            border: 4px solid #1e293b;
+            box-shadow: 0 25px 50px -12px rgba(0, 0, 0, 0.5);
+            position: relative;
+            overflow: hidden;
+        }
+
+        /* ヘッダーデザイン */
+        .header {
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+            border-bottom: 2px solid #1e293b;
+            padding-bottom: 8px;
+            z-index: 10;
+        }
+        .header h1 { 
+            font-size: 20px; 
+            font-weight: 900; 
+            color: #10b981; 
+            letter-spacing: 1px;
+            display: flex;
+            align-items: center;
+            gap: 8px;
+        }
+        
+        /* ヘッダー右側のコントロール領域 */
+        .header-controls {
+            display: flex;
+            align-items: center;
+            gap: 12px;
+        }
+
+        .header .status-indicator {
+            padding: 6px 16px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 700;
+            background: #1e293b;
+            border: 1px solid #334155;
+            transition: all 0.3s;
+        }
+        .status-RUNNING { background-color: #064e3b !important; color: #34d399 !important; border-color: #059669 !important; }
+        .status-MOLD { background-color: #78350f !important; color: #fbbf24 !important; border-color: #d97706 !important; }
+        .status-BREAK { background-color: #1e3a8a !important; color: #60a5fa !important; border-color: #2563eb !important; }
+        .status-STOP { background-color: #7f1d1d !important; color: #f87171 !important; border-color: #dc2626 !important; }
+
+        /* セーフティ2段階リセットボタン */
+        .btn-reset {
+            background-color: #334155;
+            color: #cbd5e1;
+            border: 1px solid #475569;
+            padding: 6px 16px;
+            border-radius: 30px;
+            font-size: 14px;
+            font-weight: 700;
+            cursor: pointer;
+            display: flex;
+            align-items: center;
+            gap: 6px;
+            transition: all 0.2s ease;
+        }
+        .btn-reset:active {
+            transform: scale(0.95);
+        }
+        .btn-reset.confirming {
+            background-color: #991b1b;
+            color: #fca5a5;
+            border-color: #f87171;
+            animation: pulse 1s infinite;
+        }
+
+        @keyframes pulse {
+            0%, 100% { opacity: 1; }
+            50% { opacity: 0.7; }
+        }
+
+        /* 1. 最優先：性能稼働率パネル (最上部) */
+        .rate-section {
+            background: #1e293b;
+            border: 3px solid #334155;
+            border-radius: 20px;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            position: relative;
+            transition: all 0.3s;
+            z-index: 10;
+        }
+        .rate-section.active { 
+            border-color: #10b981; 
+            box-shadow: 0 0 15px rgba(16, 185, 129, 0.2);
+        }
+        .rate-label { 
+            font-size: 14px; 
+            font-weight: 700; 
+            color: #94a3b8; 
+            letter-spacing: 2px;
+            margin-bottom: 2px;
+        }
+        .rate-value { 
+            font-family: 'JetBrains Mono', monospace; 
+            font-size: 100px; 
+            color: #10b981; 
+            line-height: 1;
+            font-weight: 900;
+        }
+        .rate-unit { 
+            font-size: 35px; 
+            margin-left: 5px; 
+            font-weight: 750;
+        }
+
+        /* 2. メイングリッド (3列レイアウト) */
+        .main-grid {
+            display: grid;
+            grid-template-columns: 310px 1fr 280px;
+            gap: 15px;
+            z-index: 10;
+        }
+
+        /* 入力＆表示カード */
+        .card-group { 
+            display: flex; 
+            flex-direction: column; 
+            gap: 12px; 
+        }
+        .card {
+            background: #1e293b;
+            padding: 12px 15px;
+            border-radius: 16px;
+            border: 1px solid #334155;
+            text-align: center;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            position: relative;
+        }
+        .card-label { 
+            font-size: 11px; 
+            font-weight: 700; 
+            color: #34d399; 
+            margin-bottom: 4px; 
+            text-transform: uppercase; 
+            letter-spacing: 0.5px;
+        }
+        .card-description {
+            font-size: 10px;
+            color: #64748b;
+            margin-bottom: 8px;
+            line-height: 1.2;
+        }
+        .card input {
+            background: #0f172a;
+            border: 2px solid #475569;
+            border-radius: 10px;
+            width: 100%;
+            padding: 6px;
+            color: #fff;
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 26px;
+            text-align: center;
+            transition: border-color 0.2s;
+        }
+        .card input:focus { 
+            outline: none; 
+            border-color: #10b981; 
+        }
+
+        /* 中央：タイムクロック */
+        .clock-center {
+            display: flex;
+            flex-direction: column;
+            justify-content: space-between;
+            align-items: center;
+            background: #0f172a;
+            border-radius: 20px;
+            border: 2px solid #1e293b;
+            padding: 15px;
+        }
+        .clock-display { 
+            font-family: 'JetBrains Mono', monospace; 
+            font-size: 58px; 
+            color: #fff; 
+            letter-spacing: 2px;
+            line-height: 1.1;
+        }
+        .clock-status { 
+            font-size: 13px; 
+            color: #64748b; 
+            font-weight: bold;
+            letter-spacing: 1px;
+        }
+        .clock-status.running { 
+            color: #10b981; 
+            animation: blink 1s infinite; 
+        }
+
+        /* 内訳タイムリスト */
+        .time-breakdown {
+            width: 100%;
+            display: grid;
+            grid-template-columns: repeat(3, 1fr);
+            gap: 8px;
+            margin-top: 10px;
+            border-top: 1px solid #1e293b;
+            padding-top: 10px;
+        }
+        .breakdown-item {
+            text-align: center;
+            font-size: 11px;
+            color: #94a3b8;
+        }
+        .breakdown-val {
+            font-family: 'JetBrains Mono', monospace;
+            font-size: 13px;
+            color: #fff;
+            font-weight: bold;
+            margin-top: 2px;
+        }
+
+        /* 右側：加工実績数 */
+        .total-val { 
+            font-family: 'JetBrains Mono', monospace; 
+            font-size: 44px; 
+            color: #fff; 
+            font-weight: bold;
+            line-height: 1.2;
+        }
+        .total-sub { 
+            font-size: 14px; 
+            color: #64748b; 
+            margin-top: 2px; 
+            font-weight: bold;
+        }
+
+        /* 3. 最下部：ステータス切り替え巨大ボタン */
+        .button-grid {
+            display: grid;
+            grid-template-columns: repeat(4, 1fr);
+            gap: 15px;
+            z-index: 20; 
+        }
+        .btn {
+            border: none;
+            border-radius: 18px;
+            color: #fff;
+            font-size: 22px;
+            font-weight: 900;
+            display: flex;
+            flex-direction: column;
+            justify-content: center;
+            align-items: center;
+            cursor: pointer;
+            transition: all 0.15s ease-out;
+            opacity: 0.4; /* 非選択時は半透明 */
+            position: relative;
+            outline: none;
+            box-shadow: 0 4px 6px -1px rgba(0, 0, 0, 0.1);
+        }
+        .btn i { 
+            font-size: 36px; 
+            margin-bottom: 8px; 
+        }
+        
+        .btn:active {
+            transform: scale(0.96);
+        }
+        
+        /* 選択されているボタンのスタイル */
+        .btn.active { 
+            opacity: 1 !important; 
+            transform: scale(1.02); 
+            box-shadow: 0 10px 20px -3px rgba(0, 0, 0, 0.4);
+            font-weight: 950;
+        }
+        
+        /* 各ボタンの色分け */
+        .btn-running { background: #059669; border: 3px solid #34d399; }
+        .btn-pause { background: #475569; border: 3px solid #94a3b8; } /* 一時停止時のシックな色合い */
+        .btn-mold { background: #d97706; border: 3px solid #fbbf24; }
+        .btn-break { background: #2563eb; border: 3px solid #60a5fa; }
+        .btn-stop { background: #dc2626; border: 3px solid #f87171; }
+
+        @keyframes blink { 
+            0%, 100% { opacity: 1; } 
+            50% { opacity: 0.4; } 
+        }
+    </style>
+</head>
+<body>
+
+<div class="app-container">
+    <!-- Header -->
+    <div class="header">
+        <h1><i class="fa-solid fa-industry"></i> PRESS MONITOR <span style="font-weight: 400; font-size: 14px; color: #64748b;">v2.3</span></h1>
+        
+        <div class="header-controls">
+            <!-- リセットボタン (2段階確認式) -->
+            <button class="btn-reset" id="btn-reset" onclick="triggerReset()">
+                <i class="fa-solid fa-rotate-left"></i><span id="reset-text">データリセット</span>
+            </button>
+            <div class="status-indicator" id="current-status-label">待機中</div>
+            <div id="live-time" style="color: #64748b; font-size: 14px; font-family: 'JetBrains Mono';">17:15:00</div>
+        </div>
+    </div>
+
+    <!-- 1. 最優先：性能稼働率 (最上部に巨大配置) -->
+    <div class="rate-section" id="rate-box">
+        <p class="rate-label">PERFORMANCE RATE / 性能稼働率</p>
+        <div class="rate-value"><span id="perf-rate">100.0</span><span class="rate-unit">%</span></div>
+    </div>
+
+    <!-- 2. メイン情報エリア (入力とクロック) -->
+    <div class="main-grid">
+        <!-- 左側：SPM入力 -->
+        <div class="card-group">
+            <div class="card" style="border-color: #334155;">
+                <p class="card-label" style="color: #94a3b8;">Standard SPM / 理想値 (標準スピード)</p>
+                <p class="card-description">標準書や型仕様に規定された理論上の最高スピード</p>
+                <input type="number" id="std-spm" value="15.0" step="0.1" min="0.1">
+            </div>
+            <div class="card" style="border-color: #34d399;">
+                <p class="card-label" style="color:#34d399; font-weight: bold;">Actual SPM / 実態値 (今の設定スピード)</p>
+                <p class="card-description">金型や機械の状態を加味して現在実際に設定した稼働スピード</p>
+                <input type="number" id="act-spm" value="15.0" step="0.1" min="0">
+            </div>
+        </div>
+
+        <!-- 中央：タイムクロック (各ステータスの内訳と総稼働時間を1画面で表示) -->
+        <div class="clock-center">
+            <p class="card-label" id="clock-label">RUNNING TIME / 稼働経過時間</p>
+            <div class="clock-display" id="main-clock">00:00:00</div>
+            <div class="clock-status" id="clock-sub">READY / 待機中</div>
+            
+            <!-- 他の非稼働時間内訳 -->
+            <div class="time-breakdown">
+                <div class="breakdown-item">
+                    <div>金型交換</div>
+                    <div class="breakdown-val" id="time-mold" style="color: #fbbf24;">00:00:00</div>
+                </div>
+                <div class="breakdown-item">
+                    <div>休憩・4S</div>
+                    <div class="breakdown-val" id="time-break" style="color: #60a5fa;">00:00:00</div>
+                </div>
+                <div class="breakdown-item">
+                    <div>異常停止</div>
+                    <div class="breakdown-val" id="time-stop" style="color: #f87171;">00:00:00</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 右側：自動実績数表示 -->
+        <div class="card-group">
+            <div class="card" style="height: 100%; justify-content: center;">
+                <p class="card-label" style="color: #cbd5e1;">Accumulated / 自動集計 加工数</p>
+                <p class="card-description">「稼働中」の秒数と実態SPMから高精度に自動加算</p>
+                <div class="total-val" id="total-count">0</div>
+                <div class="total-sub">Target: <span id="target-val">1,200</span> pcs</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- 3. 最下部：大きな作業ステータスボタン -->
+    <div class="button-grid">
+        <!-- 稼働中ボタン：稼働中は「一時停止」に自動で表示が切り替わります -->
+        <button class="btn btn-running" onclick="setStatus('RUNNING')" id="btn-RUNNING">
+            <i class="fa-solid fa-play" id="run-icon"></i><span id="run-text">稼働中</span>
+        </button>
+        <button class="btn btn-mold" onclick="setStatus('MOLD')" id="btn-MOLD">
+            <i class="fa-solid fa-arrows-rotate"></i>金型交換
+        </button>
+        <button class="btn btn-break" onclick="setStatus('BREAK')" id="btn-BREAK">
+            <i class="fa-solid fa-coffee"></i>休憩・4S
+        </button>
+        <button class="btn btn-stop" onclick="setStatus('STOP')" id="btn-STOP">
+            <i class="fa-solid fa-triangle-exclamation"></i>異常停止
+        </button>
+    </div>
+</div>
+
+<script>
+    // 内部ステート管理
+    let state = {
+        status: 'IDLE', // RUNNING, MOLD, BREAK, STOP, IDLE
+        runningSeconds: 0,   // 稼働中時間
+        moldSeconds: 0,      // 金型交換時間
+        breakSeconds: 0,     // 休憩時間
+        stopSeconds: 0,      // 異常停止時間
+        accumulatedCount: 0, // 加工数
+        standardSPM: 15.0,
+        actualSPM: 15.0
+    };
+
+    let resetConfirmState = false; // リセットボタン確認状態用フラグ
+    let resetTimer = null;
+
+    // DOM要素の参照キャッシュ
+    const rateEl = document.getElementById('perf-rate');
+    const clockEl = document.getElementById('main-clock');
+    const countEl = document.getElementById('total-count');
+    const statusLabel = document.getElementById('current-status-label');
+    const clockSub = document.getElementById('clock-sub');
+    const rateBox = document.getElementById('rate-box');
+    const clockLabel = document.getElementById('clock-label');
+    
+    // 内訳表示のキャッシュ
+    const timeMoldEl = document.getElementById('time-mold');
+    const timeBreakEl = document.getElementById('time-break');
+    const timeStopEl = document.getElementById('time-stop');
+    
+    // 操作ボタンパーツ
+    const runBtn = document.getElementById('btn-RUNNING');
+    const runIcon = document.getElementById('run-icon');
+    const runText = document.getElementById('run-text');
+
+    const stdSpmInput = document.getElementById('std-spm');
+    const actSpmInput = document.getElementById('act-spm');
+
+    const resetBtn = document.getElementById('btn-reset');
+    const resetText = document.getElementById('reset-text');
+
+    // 現在時刻の更新
+    setInterval(() => {
+        const now = new Date();
+        document.getElementById('live-time').innerText = now.toTimeString().split(' ')[0];
+    }, 1000);
+
+    // 標準SPMが書き換えられたら、実績SPMも連動させる
+    stdSpmInput.addEventListener('input', (e) => {
+        const val = parseFloat(e.target.value) || 0;
+        state.standardSPM = val;
+        actSpmInput.value = val.toFixed(1);
+        state.actualSPM = val;
+        updateCalculations();
+    });
+
+    actSpmInput.addEventListener('input', (e) => {
+        state.actualSPM = parseFloat(e.target.value) || 0;
+        updateCalculations();
+    });
+
+    // 2段階式リセット処理
+    function triggerReset() {
+        if (!resetConfirmState) {
+            // 1回目のタップ: 確認モードへ
+            resetConfirmState = true;
+            resetBtn.classList.add('confirming');
+            resetText.innerText = '本当にリセット？';
+            
+            // 5秒間操作がなければ、自動で通常状態に戻す
+            if (resetTimer) clearTimeout(resetTimer);
+            resetTimer = setTimeout(() => {
+                cancelResetState();
+            }, 5000);
+        } else {
+            // 2回目のタップ: 実際にリセット実行
+            executeReset();
+        }
+    }
+
+    function cancelResetState() {
+        resetConfirmState = false;
+        resetBtn.classList.remove('confirming');
+        resetText.innerText = 'データリセット';
+    }
+
+    function executeReset() {
+        // ステートのクリア
+        state.status = 'IDLE';
+        state.runningSeconds = 0;
+        state.moldSeconds = 0;
+        state.breakSeconds = 0;
+        state.stopSeconds = 0;
+        state.accumulatedCount = 0;
+        
+        // 画面表記を待機中のデフォルトへ
+        document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+        statusLabel.className = 'status-indicator';
+        statusLabel.innerText = '待機中';
+        clockSub.innerText = 'READY / 待機中';
+        clockSub.classList.remove('running');
+        rateBox.classList.remove('active');
+        
+        resetRunButton();
+        cancelResetState();
+        updateCalculations();
+    }
+
+    // ステータス（稼働・非稼働）の切り替え処理
+    function setStatus(newStatus) {
+        // もしリセットの確認中状態なら解除
+        cancelResetState();
+
+        // 全体のボタン活性表示を一旦リセット
+        document.querySelectorAll('.btn').forEach(b => b.classList.remove('active'));
+        
+        // ヘッダーのインジケータクラスもリセット
+        statusLabel.className = 'status-indicator';
+
+        // 生産中（RUNNING）かつ再度「稼働中」ボタンが押された（一時停止を意味する）
+        if (state.status === 'RUNNING' && newStatus === 'RUNNING') {
+            state.status = 'IDLE';
+            statusLabel.innerText = '一時停止中';
+            clockSub.innerText = 'PAUSED / 停止中';
+            clockSub.classList.remove('running');
+            rateBox.classList.remove('active');
+            
+            // 稼働ボタン表示を「稼働中（再生）」に戻す
+            runBtn.className = 'btn btn-running';
+            runIcon.className = 'fa-solid fa-play';
+            runText.innerText = '稼働中';
+            return;
+        }
+
+        // それ以外の通常トグルまたは新規ボタン切り替え
+        if (state.status === newStatus) {
+            state.status = 'IDLE';
+            statusLabel.innerText = '待機中';
+            clockSub.innerText = 'PAUSED / 停止中';
+            clockSub.classList.remove('running');
+            rateBox.classList.remove('active');
+            
+            // ボタン表示リセット
+            resetRunButton();
+        } else {
+            state.status = newStatus;
+            document.getElementById('btn-' + newStatus).classList.add('active');
+            
+            const labels = { 
+                'RUNNING': '生産中', 
+                'MOLD': '金型交換中', 
+                'BREAK': '休憩中', 
+                'STOP': '異常停止中' 
+            };
+            statusLabel.innerText = labels[newStatus];
+            statusLabel.classList.add('status-' + newStatus);
+            
+            if (newStatus === 'RUNNING') {
+                clockSub.innerText = 'RUNNING NOW';
+                clockSub.classList.add('running');
+                rateBox.classList.add('active');
+                
+                // 再生中はボタンを「一時停止」の見た目に変更
+                runBtn.className = 'btn btn-pause active';
+                runIcon.className = 'fa-solid fa-pause';
+                runText.innerText = '一時停止';
+            } else {
+                clockSub.innerText = 'INDIRECT WORK / 非稼働';
+                clockSub.classList.remove('running');
+                rateBox.classList.remove('active');
+                
+                // 他のモードのときは稼働中ボタンはデフォルト表示
+                resetRunButton();
+            }
+        }
+    }
+
+    // 稼働ボタンの見た目をデフォルトに戻す
+    function resetRunButton() {
+        runBtn.className = 'btn btn-running';
+        runIcon.className = 'fa-solid fa-play';
+        runText.innerText = '稼働中';
+    }
+
+    // 時間フォーマット (hh:mm:ss)
+    function formatTime(sec) {
+        const h = Math.floor(sec / 3600).toString().padStart(2, '0');
+        const m = Math.floor((sec % 3600) / 60).toString().padStart(2, '0');
+        const s = (sec % 60).toString().padStart(2, '0');
+        return `${h}:${m}:${s}`;
+    }
+
+    // 計算と表示のアップデート
+    function updateCalculations() {
+        if (state.standardSPM <= 0) return;
+        
+        // 分母：生産稼働時間 ＋ 金型交換時間 （休憩と停止は除外）
+        let activeWorkSeconds = state.runningSeconds + state.moldSeconds;
+        
+        if (activeWorkSeconds === 0) {
+            rateEl.innerText = "100.0";
+            rateEl.style.color = '#10b981';
+            return;
+        }
+
+        // 標準サイクルタイム (1個あたりの秒数) ＝ 60 / 標準SPM
+        let standardCT = 60 / state.standardSPM;
+
+        // 性能稼働率 ＝ （標準CT × 自動加工数） / 総稼働時間 * 100
+        let rate = ((standardCT * state.accumulatedCount) / activeWorkSeconds) * 100;
+        
+        // 200%を上限にクリッピング
+        rate = Math.min(rate, 200.0);
+        
+        // 表示を更新
+        rateEl.innerText = rate.toFixed(1);
+        
+        // 稼働率に応じた文字色の自動変化
+        if (rate >= 95) rateEl.style.color = '#10b981'; // 良好：緑
+        else if (rate >= 85) rateEl.style.color = '#fbbf24'; // 普通：黄
+        else rateEl.style.color = '#f87171'; // 遅れ：赤
+    }
+
+    // 1秒ごとの定期バックグラウンド処理
+    setInterval(() => {
+        // 入力値の最新状態を常に同期
+        state.standardSPM = parseFloat(stdSpmInput.value) || 0.1;
+        state.actualSPM = parseFloat(actSpmInput.value) || 0;
+
+        // ステータスに応じた時間の積み上げ
+        if (state.status === 'RUNNING') {
+            state.runningSeconds++;
+            // 稼働時のみ加工数を実績SPM（分あたり）を秒割して自動積算
+            state.accumulatedCount += (state.actualSPM / 60);
+        } else if (state.status === 'MOLD') {
+            state.moldSeconds++;
+            // 金型交換中も「総稼働時間」が進むため、加工数は増えないが分母が大きくなり、
+            // 性能稼働率がタイムリーに減少していきます。
+        } else if (state.status === 'BREAK') {
+            state.breakSeconds++;
+        } else if (state.status === 'STOP') {
+            state.stopSeconds++;
+        }
+
+        // リアルタイム再計算
+        updateCalculations();
+
+        // タイム表示のリライト
+        clockEl.innerText = formatTime(state.runningSeconds); // メインクロックは純粋な稼働中時間を表示
+        countEl.innerText = Math.floor(state.accumulatedCount).toLocaleString();
+
+        // 各サブタイマーの表示更新
+        timeMoldEl.innerText = formatTime(state.moldSeconds);
+        timeBreakEl.innerText = formatTime(state.breakSeconds);
+        timeStopEl.innerText = formatTime(state.stopSeconds);
+
+    }, 1000);
+</script>
+
+</body>
+</html>
